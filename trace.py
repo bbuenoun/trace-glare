@@ -1,3 +1,19 @@
+"""calculates the vertical illuminance and DGP at a sensor point.
+
+Runs gensky to determine if the solar altitude is positive as a 
+condition for a daylighting hour. For a daylighing hour, runs 
+rtrace -ab 0 to determine if the solar disk is in the field of view as
+a condition to run rtrace with ab >3. Runs rtrace and pipes it into 
+evalglare. If the option -img, it also generates a falsecolor luminance
+map of the field of view.
+
+
+  Typical usage example:
+
+  foo = ClassFoo()
+  bar = foo.FunctionBar()
+"""
+
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
@@ -7,6 +23,9 @@ import numpy as np
 import argparse
 import os
 from configparser import ConfigParser
+
+
+
 
 def parse_args():
     return _build_parser().parse_args()
@@ -36,7 +55,7 @@ def _add_common_arguments(parser):
     parser.add_argument(
         "-date", 
         nargs="+", 
-        help="simulates a specific date in mmddhh format"
+        help="simulates specific dates in mmddhh format"
     )
     parser.add_argument(
         "-ab", help="ambient bounces (default: '%(default)s')", type=int, default=3
@@ -80,7 +99,17 @@ def _add_inputs(parser, config):
     config.glazFile = parser.get("PATHS", "glazFile")
     config.shadFile = parser.get("PATHS", "shadFile")  
     config.viewPoint = parser.get("PATHS", "viewPoint")
-    config.obstacles=parser.get("PATHS", "obstacles")
+    config.obstacles = parser.get("PATHS", "obstacles")
+
+def _create_non_existing_directories(config):
+    if hasattr(config, "outDir") and not os.path.exists(config.outDir):
+        os.makedirs(config.outDir)
+    if hasattr(config, "workDir") and not os.path.exists(config.workDir):
+        os.makedirs(config.workDir)
+    if not os.path.isfile("%sskyglowM.rad"%workDir):
+        cad="skyfunc glow groundglow 0 0 4 1 1 1 0 \ngroundglow source ground 0 0 4 0 0 -1 180 \nskyfunc glow skyglow 0 0 4 1 1 1 0 \nskyglow source skydome 0 0 4 0 0 1 180"      
+        fileSK=open("%sskyglowM.rad"%workDir,"w")
+        fileSK.write("%s"%(cad)); fileSK.close()
 
 def shell(cmd, outputFlag=False):
     print(cmd)
@@ -115,7 +144,7 @@ def calculate_dgp(fileDGP,month,day,hour,lat,lon,mer,workDir,inDir,matFile,roomF
         print('daylight hour',sunAltitude)
         skyt="sky.rad"    
         skySTR =" gensky %d %d %.2f +s -a %.2f -o %.2f -m %.1f > %s%s " % (month,day,hour,lat,lon,mer,workDir,skyt)
-        octSTR=" oconv %s%s %s%s %s%s %s%s %s%s %s%s %s%s > %sscene.oct"%(workDir,skyt,inDir,matFile,inDir,roomFile,inDir,obstacles,inDir,shadFile,inDir,glazFile,workDir,SKfile,workDir)  
+        octSTR=" oconv %s%s %s%s %s%s %s%s %s%s %s%s %sskyglowM.rad > %sscene.oct"%(workDir,skyt,inDir,matFile,inDir,roomFile,inDir,obstacles,inDir,shadFile,inDir,glazFile,workDir,workDir)  
         shell(skySTR)
         shell(octSTR)
         # Visible solar disk hours
@@ -180,21 +209,7 @@ if __name__ == "__main__":
         Ny=900 
         Nx=900
         Npts=9
-        SKfile="skyglowM.rad"
-        # ---
-        projectWorkDir = workDir.split("/")[0]+"/"+workDir.split("/")[1]
-        projectOutDir = outDir.split("/")[0]+"/"+outDir.split("/")[1]
-        if not os.path.exists(projectWorkDir):
-            shell("mkdir %s"%(projectWorkDir))
-        if not os.path.exists(projectOutDir):
-            shell("mkdir %s"%(projectOutDir))
-        if not os.path.exists(workDir):
-            shell("mkdir %s"%(workDir))
-        if not os.path.exists(outDir):
-            shell("mkdir %s"%(outDir))
-            cad="skyfunc glow groundglow 0 0 4 1 1 1 0 \ngroundglow source ground 0 0 4 0 0 -1 180 \nskyfunc glow skyglow 0 0 4 1 1 1 0 \nskyglow source skydome 0 0 4 0 0 1 180"      
-            fileSK=open("%s%s"%(workDir,SKfile),"w")
-            fileSK.write("%s"%(cad)); fileSK.close()
+        _create_non_existing_directories(config)
         # --
         fileTime=open("%stime.out"%outDir,"w")
         inobis = [4,4,4,4,4,3]

@@ -1,0 +1,20 @@
+[PATHS]
+
+# Main directories:
+inDir=test/input/
+workDir=test/workDir/
+outDir=test/output/
+
+# Input files located in inDir
+matFile=materialsN.rad
+roomFile=roomG.rad
+glazFile=fenestration.rad
+shadFile=ext_scene.rad
+viewPoint=sensor_45.pts
+obstacles=ext_scene.rad
+
+[VARIABLES]
+# Simulation options:
+lat = 47.987
+lon = -7.8945
+mer =-15.0

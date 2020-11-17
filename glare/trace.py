@@ -225,7 +225,7 @@ if __name__ == "__main__":
                 for i in range(len(opts.date)):
                     month = int(opts.date[i][:2])
                     day = int(opts.date[i][2:4])
-                    hour = float(opts.date[i][4:])+0.5
+                    hour = float(opts.date[i][4:])
                     print(month,day,hour)
                     calculate_dgp(fileDGP,month,day,hour,config.lat,config.lon,config.mer,workDir,inDir,config.matFile,\
                         config.roomFile,config.obstacles,config.shadFile,config.glazFile,opts.ab,opts.ad,\
@@ -236,7 +236,7 @@ if __name__ == "__main__":
                     for j in range(inobis[i]):
                         day = j*7+1
                         for k in range(24):
-                            hour = k+0.5
+                            hour = k
                             print(month,day,hour)
                             calculate_dgp(fileDGP,month,day,hour,config.lat,config.lon,config.mer,workDir,inDir,config.matFile,\
                                 config.roomFile,config.obstacles,config.shadFile,config.glazFile,opts.ab,opts.ad,\
@@ -244,7 +244,7 @@ if __name__ == "__main__":
                 month = 12
                 day = 22
                 for k in range(24):
-                    hour = k+0.5
+                    hour = k
                     print(month,day,hour)
                     calculate_dgp(fileDGP,month,day,hour,config.lat,config.lon,config.mer,workDir,inDir,config.matFile,\
                         config.roomFile,config.obstacles,config.shadFile,config.glazFile,opts.ab,opts.ad,\

@@ -1,21 +1,21 @@
-"""calculates the vertical illuminance and DGP at a sensor point.
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
-Runs gensky to determine if the solar altitude is positive as a 
-condition for a daylighting hour. For a daylighing hour, runs 
+"""Calculates the vertical illuminance and DGP at a sensor point.
+
+Runs gensky to determine if the solar altitude is positive as a
+condition for a daylighting hour. For a daylighing hour, runs
 rtrace -ab 0 to determine if the solar disk is in the field of view as
-a condition to run rtrace with ab >3. Runs rtrace and pipes it into 
+a condition to run rtrace with ab >3. Runs rtrace and pipes it into
 evalglare. If the option -img, it also generates a falsecolor luminance
 map of the field of view.
 
 
   Typical usage example:
 
-  foo = ClassFoo()
-  bar = foo.FunctionBar()
+  >>> foo = ClassFoo()
+  >>> bar = foo.FunctionBar()
 """
-
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 
 from subprocess import PIPE, run
 import time
@@ -26,7 +26,7 @@ from configparser import ConfigParser
 
 
 
-
+"""Parse arguments"""
 def parse_args():
     return _build_parser().parse_args()
 
@@ -53,8 +53,8 @@ def _add_common_arguments(parser):
         help="generates luminances maps",
     )
     parser.add_argument(
-        "-date", 
-        nargs="+", 
+        "-date",
+        nargs="+",
         help="simulates specific dates in mmddhh format"
     )
     parser.add_argument(
@@ -64,23 +64,24 @@ def _add_common_arguments(parser):
         "-ad", help="ambient divisions (default: '%(default)s')", type=int, default=500
     )
     parser.add_argument(
-        "-direct", 
+        "-direct",
         action="store_true",
         default=False,
-        help="calculates glare even if the solar disk is not in the field of view", 
+        help="calculates glare even if the solar disk is not in the field of view",
     )
 
 class Config:
     pass
 
 
+"""Parse configruation"""
 def parse_config(config_path, options):
     parser = ConfigParser()
     parser.read(config_path)
     config = Config()
-    _add_variables(parser, config)  
-    _add_paths(parser, config) 
-    _add_inputs(parser, config) 
+    _add_variables(parser, config)
+    _add_paths(parser, config)
+    _add_inputs(parser, config)
     return config
 
 def _add_variables(parser, config):
@@ -88,16 +89,16 @@ def _add_variables(parser, config):
     config.lon = parser.getfloat("VARIABLES", "lon")
     config.mer = parser.getfloat("VARIABLES", "mer")
 
-def _add_paths(parser, config):    
+def _add_paths(parser, config):
     config.inDir = parser.get("PATHS", "inDir")
     config.workDir = parser.get("PATHS", "workDir")
     config.outDir = parser.get("PATHS", "outDir")
 
-def _add_inputs(parser, config):    
+def _add_inputs(parser, config):
     config.matFile = parser.get("PATHS", "matFile")
     config.roomFile = parser.get("PATHS", "roomFile")
     config.glazFile = parser.get("PATHS", "glazFile")
-    config.shadFile = parser.get("PATHS", "shadFile")  
+    config.shadFile = parser.get("PATHS", "shadFile")
     config.viewPoint = parser.get("PATHS", "viewPoint")
     config.obstacles = parser.get("PATHS", "obstacles")
 
@@ -107,7 +108,7 @@ def _create_non_existing_directories(config):
     if hasattr(config, "workDir") and not os.path.exists(config.workDir):
         os.makedirs(config.workDir)
     if not os.path.isfile("%sskyglowM.rad"%workDir):
-        cad="skyfunc glow groundglow 0 0 4 1 1 1 0 \ngroundglow source ground 0 0 4 0 0 -1 180 \nskyfunc glow skyglow 0 0 4 1 1 1 0 \nskyglow source skydome 0 0 4 0 0 1 180"      
+        cad="skyfunc glow groundglow 0 0 4 1 1 1 0 \ngroundglow source ground 0 0 4 0 0 -1 180 \nskyfunc glow skyglow 0 0 4 1 1 1 0 \nskyglow source skydome 0 0 4 0 0 1 180"
         fileSK=open("%sskyglowM.rad"%workDir,"w")
         fileSK.write("%s"%(cad)); fileSK.close()
 
@@ -140,19 +141,19 @@ def calculate_dgp(fileDGP,month,day,hour,lat,lon,mer,workDir,inDir,matFile,roomF
     skySTR =" gensky %d %d %.2f +s -a %.2f -o %.2f -m %.1f" % (month,day,hour,lat,lon,mer)
     coordsun = shell(skySTR,True)
     sunAltitude = float(coordsun.split()[22])
-    if sunAltitude > 0: 
+    if sunAltitude > 0:
         print('daylight hour',sunAltitude)
-        skyt="sky.rad"    
+        skyt="sky.rad"
         skySTR =" gensky %d %d %.2f +s -a %.2f -o %.2f -m %.1f > %s%s " % (month,day,hour,lat,lon,mer,workDir,skyt)
-        octSTR=" oconv %s%s %s%s %s%s %s%s %s%s %s%s %sskyglowM.rad > %sscene.oct"%(workDir,skyt,inDir,matFile,inDir,roomFile,inDir,obstacles,inDir,shadFile,inDir,glazFile,workDir,workDir)  
+        octSTR=" oconv %s%s %s%s %s%s %s%s %s%s %s%s %sskyglowM.rad > %sscene.oct"%(workDir,skyt,inDir,matFile,inDir,roomFile,inDir,obstacles,inDir,shadFile,inDir,glazFile,workDir,workDir)
         shell(skySTR)
         shell(octSTR)
         # Visible solar disk hours
         mainSTR="rtrace -h -I -ab 0 -ad %d -aa %.2f -as %d -lw %.8f -n %d -ov %sscene.oct <%ssensor_%i.pts"%(ad,aa,aS,lw,n,workDir,workDir,pts)
         result = shell(mainSTR,True)
         illuDirect = float(result.split()[0])*179
-        if illuDirect > 0.1 or runFlag: 
-            print('visible solar disk hour',illuDirect)        
+        if illuDirect > 0.1 or runFlag:
+            print('visible solar disk hour',illuDirect)
             # Point-in-time illuminance calculation:
             mainSTR="rtrace -h -I -ab %d -ad %d -aa %.2f -as %d -lw %.8f -n %d -ov %sscene.oct <%ssensor_%i.pts"%(ab,ad,aa,aS,lw,n,workDir,workDir,pts)
             result = shell(mainSTR,True)
@@ -197,16 +198,16 @@ if __name__ == "__main__":
         opts = parse_args()
         config_path =opts.config
         config = parse_config(config_path, opts)
-        #_add_variables    
+        #_add_variables
         inDir=config.inDir
         workDir=config.workDir
         outDir=config.outDir
-        #_add_inputs   
+        #_add_inputs
         aa=0.1
         lw=0.002
         st=0.15
         aS=1000
-        Ny=900 
+        Ny=900
         Nx=900
         Npts=9
         _create_non_existing_directories(config)
@@ -249,7 +250,7 @@ if __name__ == "__main__":
                     calculate_dgp(fileDGP,month,day,hour,config.lat,config.lon,config.mer,workDir,inDir,config.matFile,\
                         config.roomFile,config.obstacles,config.shadFile,config.glazFile,opts.ab,opts.ad,\
                         aa,aS,lw,opts.c,pts,opts.direct)
-            fileDGP.close() 
+            fileDGP.close()
         t2=time.time()
         fileTime.write("%d %.3f \n"%(opts.c,abs(t2-t1),))
         print("CPU time: %.1f s "%(abs(t2-t1)))

@@ -1,4 +1,5 @@
-/_build
+/docs/html
+/docs/source
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -1,9 +1,9 @@
 [PATHS]
 
 # Main directories:
-inDir=test/input/
-workDir=test/workDir/
-outDir=test/output/
+inDir=../test/input/
+workDir=../test/workDir/
+outDir=../test/output/
 
 # Input files located in inDir
 matFile=materialsN.rad

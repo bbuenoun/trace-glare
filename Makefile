@@ -59,7 +59,7 @@ shell : run ## Enter (B)ourne (a)gain (sh)ell, also known as Bash, in fresh cont
 # ------------------------------------------------ #
 
 tests : ## Run tests
-	python3 -m pytest tests
+	python3 -m pytest ./tests
 .PHONY : tests
 
 doctests: ## Run doctests

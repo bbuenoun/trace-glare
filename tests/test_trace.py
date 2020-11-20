@@ -62,7 +62,7 @@ def run(command: str) -> str:
         encoding="utf-8",
         executable="/bin/bash",
     )
-    assert [completed_process.returncode, completed_process.stderr] == [0, b""]
+    assert [completed_process.returncode, completed_process.stderr] == [0, ""]
     return completed_process.stdout
 
 

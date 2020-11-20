@@ -71,15 +71,15 @@ doctests: ## Run doctests
 .PHONY : doctests
 
 types : ## Type check the code
-	mypy --strict ./glare
+	mypy --strict .
 .PHONY : types
 
 lint : ## Lint the code
-	pylint ./glare
+	pylint ./glare ./docs ./tests
 .PHONY : lint
 
 dead : ## Find dead code
-	vulture ./glare
+	vulture .
 .PHONY : dead
 
 format: ## Format the code

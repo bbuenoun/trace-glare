@@ -121,6 +121,7 @@ RUN \
 ENV PATH=/usr/local/radiance/bin:$PATH
 ENV MANPATH=/usr/local/radiance/man:$MANPATH
 ENV LD_LIBRARY_PATH=/usr/local/radiance/lib:$LD_LIBRARY_PATH
+ENV RAYPATH=/usr/local/radiance/lib/:$RAYPATH
 
 #------------------------#
 # Install Python and pip #

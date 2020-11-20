@@ -56,7 +56,7 @@ RUN \
   rm --recursive --force /var/lib/apt/lists/*
 
 # Set environment variable `LANG`
-ENV LANG en_US.UTF-8
+ENV LANG=en_US.UTF-8
 
 #-------------------------------#
 # Make `bash` the default shell #

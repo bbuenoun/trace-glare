@@ -54,7 +54,7 @@ def assert_equality_of_actual_and_expected_output(  # pylint: disable=invalid-na
 def run(command: str) -> str:
     print(f"about to run the command `{command}`")
     completed_process = subprocess.run(
-        f"set -euo pipefail && {command}",
+        f"set -euo pipefail && ({command})",
         shell=True,
         capture_output=True,
         check=False,

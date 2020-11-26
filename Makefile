@@ -59,7 +59,7 @@ shell : run ## Enter (B)ourne (a)gain (sh)ell, also known as Bash, in fresh cont
 # ------------------------------------------------ #
 
 tests : ## Run tests
-	python3 -m pytest tests
+	python3 -m pytest ./tests
 .PHONY : tests
 
 doctests: ## Run doctests
@@ -71,15 +71,15 @@ doctests: ## Run doctests
 .PHONY : doctests
 
 types : ## Type check the code
-	mypy --strict ./glare
+	mypy --strict .
 .PHONY : types
 
 lint : ## Lint the code
-	pylint ./glare
+	pylint ./glare ./docs ./tests
 .PHONY : lint
 
 dead : ## Find dead code
-	vulture ./glare
+	vulture .
 .PHONY : dead
 
 format: ## Format the code

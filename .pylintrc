@@ -53,6 +53,7 @@ enable=use-symbolic-message-instead,useless-supression,fixme
 # --disable=W"
 
 disable=
+    disable=line-too-long,
     format, # handled by black
     missing-docstring,
     too-few-public-methods,

@@ -1,5 +1,7 @@
 /docs/html
 /docs/source
+/tests/**/workDir
+/tests/**/actual_output
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

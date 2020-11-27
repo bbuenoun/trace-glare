@@ -73,8 +73,12 @@ class TestTrace:
         def clean_up(
             test_directory_path: pathlib.Path,  # pylint: disable=redefined-outer-name
         ) -> typing.Generator[None, None, None]:
-            shutil.rmtree(test_directory_path / "actual_output")
-            shutil.rmtree(test_directory_path / "workDir")
+            actual_output_path = test_directory_path / "actual_output"
+            if actual_output_path.exists():
+                shutil.rmtree(actual_output_path)
+            workdir_path = test_directory_path / "workDir"
+            if workdir_path.exists():
+                shutil.rmtree(workdir_path)
             yield
 
         @staticmethod

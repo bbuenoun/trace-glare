@@ -5,6 +5,7 @@ import re
 import shutil
 import subprocess
 import typing
+from numpy import genfromtxt
 
 
 # Regular expression taken from
@@ -28,27 +29,46 @@ def to_path(qualified_camel_case_name: str) -> pathlib.Path:
 # "AttributeError: module 'pytest' has no attribute 'fixtures'".
 @pytest.fixture
 def test_directory_path(request: typing.Any) -> pathlib.Path:
-    return to_path(request.function.__qualname__)
+    return to_path(request.function.__qualname__) 
 
+def compare_values(
+    actual_file_path: pathlib.Path,
+    expected_file_path: pathlib.Path,
+    expected_error: float,
+    ) -> bool:
+    output_actual = genfromtxt(actual_file_path)
+    output_expected = genfromtxt(expected_file_path)
+    flag = True
+    for i in range(len(output_actual)):
+        print(output_actual[i],output_expected[i])
+        if abs(output_actual[i]-output_expected[i]) > expected_error:
+            flag = False
+    return flag
 
 def compare_with_expected_file(
     test_directory_path: pathlib.Path,  # pylint: disable=redefined-outer-name
     file_name: str,
+    expected_error: float,
 ) -> bool:
     actual_file_path = test_directory_path / "actual_output" / file_name
     expected_file_path = test_directory_path / "expected_output" / file_name
-    return filecmp.cmp(str(actual_file_path), str(expected_file_path), shallow=False)
+    return compare_values(actual_file_path, expected_file_path, expected_error)
+    #~ return filecmp.cmp(str(actual_file_path), str(expected_file_path), shallow=False)
 
 
 def assert_equality_of_actual_and_expected_output(  # pylint: disable=invalid-name
     test_directory_path: pathlib.Path,  # pylint: disable=redefined-outer-name
     file_names: typing.List[str],
+    expected_error: typing.List[float],
 ) -> None:
     results = [
-        (file_name, compare_with_expected_file(test_directory_path, file_name))
-        for file_name in file_names
-    ]
-    assert results == [(file_name, True) for file_name in file_names]
+        (file_names[i], compare_with_expected_file(test_directory_path, file_names[i], expected_error[i] ))
+        for i in range(len(file_names))
+    ]     
+    assert results == [(file_name, True) for file_name in file_names], [
+        ('File output %s may exceed the maximum expected error %1.3f.'%(file_names[i], expected_error[i]))
+        for i in range(len(file_names))
+    ]       
 
 
 def run(command: str) -> str:
@@ -90,7 +110,10 @@ class TestTrace:
                 test_directory_path,
                 [
                     "fDGPe_0.out",
-                    "dgp_0.out",
                     "time.out",
                 ],
+                [
+                 0.005,
+                 50.,
+                 ],
             )

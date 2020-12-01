@@ -14,10 +14,9 @@ import time
 import numpy as np
 import argparse
 import os
+import sys
+import traceback
 from configparser import ConfigParser
-
-
-"""Parse arguments"""
 
 
 def parse_args():
@@ -66,9 +65,6 @@ class Config:
     pass
 
 
-"""Parse configuration"""
-
-
 def parse_config(config_path):
     parser = ConfigParser()
     parser.read(config_path)
@@ -86,9 +82,8 @@ def _add_variables(parser, config):
 
 
 def _add_paths(parser, config):
-    config.inDir = parser.get("PATHS", "inDir")
-    config.workDir = parser.get("PATHS", "workDir")
-    config.outDir = parser.get("PATHS", "outDir")
+    config.work_dir = parser.get("PATHS", "workDir")
+    config.out_dir = parser.get("PATHS", "outDir")
 
 
 def _add_inputs(parser, config):
@@ -101,50 +96,40 @@ def _add_inputs(parser, config):
 
 
 def _create_non_existing_directories(config):
-    if hasattr(config, "outDir") and not os.path.exists(config.outDir):
-        os.makedirs(config.outDir)
-    if hasattr(config, "workDir") and not os.path.exists(config.workDir):
-        os.makedirs(config.workDir)
-    if not os.path.isfile("%sskyglowM.rad" % workDir):
+    if hasattr(config, "out_dir") and not os.path.exists(config.out_dir):
+        os.makedirs(config.out_dir)
+    if hasattr(config, "work_dir") and not os.path.exists(config.work_dir):
+        os.makedirs(config.work_dir)
+    if not os.path.isfile("%sskyglowM.rad" % config.work_dir):
         cad = "skyfunc glow groundglow 0 0 4 1 1 1 0 \ngroundglow source ground 0 0 4 0 0 -1 180 \nskyfunc glow skyglow 0 0 4 1 1 1 0 \nskyglow source skydome 0 0 4 0 0 1 180"
-        fileSK = open("%sskyglowM.rad" % workDir, "w")
-        fileSK.write("%s" % (cad))
-        fileSK.close()
-
-
-""" run shell commands """
+        sky_file = open("%sskyglowM.rad" % config.work_dir, "w")
+        sky_file.write("%s" % (cad))
+        sky_file.close()
 
 
 def shell(cmd, output_flag=False):
+    """ runs shell commands """
     print(cmd)
     stdout = PIPE if output_flag else None
-    _completed_process = run(
-        cmd, stdout=stdout, stderr=PIPE, shell=True, check=True)
+    _completed_process = run(cmd, stdout=stdout, stderr=PIPE, shell=True, check=True)
     if output_flag:
         return _completed_process.stdout.decode("utf-8")
 
 
-""" generate view and sensor files from viewPoints """
-
-
-def gen_view_file(view_points, workDir):
+def gen_view_file(view_points, work_dir):
+    """ generates view and sensor files from viewPoints """
+    sensor_vector = np.zeros(6)
     for i in range(len(view_points)):
-        with open("%sview_%i.vf" % (workDir, i), "w") as fw:
-            tx, ty, tz = view_points[i,
-                                     0], view_points[i, 1], view_points[i, 2]
-            rx, ry, rz = view_points[i,
-                                     3], view_points[i, 4], view_points[i, 5]
-            fw.write(
-                "rview -vta -vp %1.3f %1.3f %1.3f -vd %1.3f %1.3f %1.3f -vv 180 -vh 180 -vs 0 -vl 0 -vu 0 0 1\n"
-                % (tx, ty, tz, rx, ry, rz)
+        for j in range(6):
+            sensor_vector[j] = view_points[i, j]
+        with open(f"{work_dir}view_{i}.vf", "w") as view_file:
+            view_file.write(
+                f"rview -vta -vp {sensor_vector[0]} {sensor_vector[1]} {sensor_vector[2]} -vd {sensor_vector[3]} {sensor_vector[4]} {sensor_vector[5]} -vv 180 -vh 180 -vs 0 -vl 0 -vu 0 0 1\n"
             )
-        with open("%ssensor_%i.pts" % (workDir, i), "w") as fw:
-            tx, ty, tz = view_points[i,
-                                     0], view_points[i, 1], view_points[i, 2]
-            rx, ry, rz = view_points[i,
-                                     3], view_points[i, 4], view_points[i, 5]
-            fw.write("%1.3f %1.3f %1.3f %1.3f %1.3f %1.3f\n" %
-                     (tx, ty, tz, rx, ry, rz))
+        with open(f"{work_dir}sensor_{i}.pts", "w") as sensor_file:
+            sensor_file.write(
+                f"{sensor_vector[0]} {sensor_vector[1]} {sensor_vector[2]} {sensor_vector[3]} {sensor_vector[4]} {sensor_vector[5]}\n"
+            )
 
 
 def calculate_dgp(
@@ -158,94 +143,79 @@ def calculate_dgp(
     pts,
     flag_direct=0,
 ):
+    """ runs Radiance to calculate illuminance, dgp and luminance maps """
     # daylight hours
     _sky_str = f"gensky {month} {day} {hour} +s -a {config.lat} -o {config.lon} -m {config.mer}"
     _coordsun = shell(_sky_str, True)
     sun_altitude = float(_coordsun.split()[22])
     if sun_altitude > 0:
-        np.savetxt(f"{config.workDir}sky.rad", _sky_str)
+        _sky_str = f"gensky {month} {day} {hour} +s -a {config.lat} -o {config.lon} -m {config.mer} > {config.work_dir}sky.rad"
+        shell(_sky_str)
         # Radiance octree
-        _oct_str = f"oconv {config.workDir}sky.rad {config.matFile} {config.roomFile} {config.obstacles} {config.shadFile} {config.glazFile} {config.workDir}skyglowM.rad > {config.workDir}scene.oct"
+        _oct_str = f"oconv {config.work_dir}sky.rad {config.matFile} {config.roomFile} {config.obstacles} {config.shadFile} {config.glazFile} {config.work_dir}skyglowM.rad > {config.work_dir}scene.oct"
         shell(_oct_str)
         # Visible solar disk hours
-        _rtrace_str = f"rtrace -h -I -ab 0 -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -n {opts.c} -ov {config.workDir}scene.oct <{config.workDir}sensor_{pts}.pts"
+        _rtrace_str = f"rtrace -h -I -ab 0 -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -n {opts.c} -ov {config.work_dir}scene.oct <{config.work_dir}sensor_{pts}.pts"
         _rtrace_result = shell(_rtrace_str, True)
         _illuminance_direct = float(_rtrace_result.split()[0]) * 179
         if _illuminance_direct > 0.1 or flag_direct:
             # Point-in-time illuminance calculation
-            _rtrace_str = f"rtrace -h -I -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -n {opts.c} -ov {config.workDir}scene.oct <{config.workDir}sensor_{pts}.pts"
+            _rtrace_str = f"rtrace -h -I -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -n {opts.c} -ov {config.work_dir}scene.oct <{config.work_dir}sensor_{pts}.pts"
             _rtrace_result = shell(_rtrace_str, True)
             illuminance = float(_rtrace_result.split()[0]) * 179
             # Point-in-time image calculation
             if opts.img:
-                _vwrays_str = f"vwrays -ff -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.workDir}view_{pts}.vf | rtrace  -n {opts.c} -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param_aS} -lw {radiance_param.lw} -st {radiance_param.st} -ld -ov -ffc $(vwrays -d -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.workDir}view_{pts}.vf) -h+ {workDir}scene.oct > {config.outDir}{month}{day}{hour}_{pts}.hdr"
+                _vwrays_str = f"vwrays -ff -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.work_dir}view_{pts}.vf | rtrace  -n {opts.c} -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -st {radiance_param.st} -ld -ov -ffc $(vwrays -d -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.work_dir}view_{pts}.vf) -h+ {config.work_dir}scene.oct > {config.out_dir}{month}{day}{hour}_{pts}.hdr"
                 shell(_vwrays_str)
-                _falsecolor_str = f"falsecolor -ip {config.outDir}{month}{day}{hour}_{pts}.hdr -l cd/m2 -lw 75 -s 5000 -n 5 | ra_tiff -z - {config.outDir}{month}{day}{hour}_{pts}.tif"
+                _falsecolor_str = f"falsecolor -ip {config.out_dir}{month}{day}{hour}_{pts}.hdr -l cd/m2 -lw 75 -s 5000 -n 5 | ra_tiff -z - {config.out_dir}{month}{day}{hour}_{pts}.tif"
                 shell(_falsecolor_str)
-                _evalglare_str = f"evalglare -vta -vh 180 -vv 180 -vu 0 0 1 {config.outDir}{month}{day}{hour}_{pts}.hdr"
-                _result_evalglare = shell_evalglare_str, True)
-                    dgp=float(_result_evalglare.split()[1])
-                    else:
-                    _vwrays_str=f"vwrays -ff -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.workDir}view_{pts}.vf | rtrace  -n {opts.c} -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param_aS} -lw {radiance_param.lw} -st {radiance_param.st} -ld -ov -ffc $(vwrays -d -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.workDir}view_{pts}.vf) -h+ {workDir}scene.oct | evalglare -vta -vh 180 -vv 180 -vu 0 0 1"
-                    _result_vwrays=shell(_vwrays_str, True)
-                    dgp=float(_result_vwrays.split()[1])
-                    output_file.write(
-                f"{month} {day} {hour} {dgp} {illuminance} \n")
+                _evalglare_str = f"evalglare -vta -vh 180 -vv 180 -vu 0 0 1 {config.out_dir}{month}{day}{hour}_{pts}.hdr"
+                _result_evalglare = shell(_evalglare_str, True)
+                dgp = float(_result_evalglare.split()[1])
+            else:
+                _vwrays_str = f"vwrays -ff -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.work_dir}view_{pts}.vf | rtrace  -n {opts.c} -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -st {radiance_param.st} -ld -ov -ffc $(vwrays -d -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.work_dir}view_{pts}.vf) -h+ {config.work_dir}scene.oct | evalglare -vta -vh 180 -vv 180 -vu 0 0 1"
+                _result_vwrays = shell(_vwrays_str, True)
+                dgp = float(_result_vwrays.split()[1])
+                output_file.write(f"{month} {day} {hour} {dgp} {illuminance} \n")
 
 
-                    def annual_eval(outDir, pts):
-                    dgp_value=np.genfromtxt("%sdgp_%i.out" % (
-                        outDir, pts), delimiter = " ", usecols = 3)
-                    fDGPe35=0
-                    fDGPe40=0
-                    fDGPe45=0
-                    for i in range(len(dgp_value)):
-                    if dgp_value[i] > 0.35:
-                    fDGPe35=fDGPe35 + 1
-                    if dgp_value[i] > 0.40:
-                    fDGPe40=fDGPe40 + 1
-                    if dgp_value[i] > 0.45:
-                    fDGPe45=fDGPe45 + 1
-                    fDGPe35=fDGPe35 * 5.43 / 1304
-                    fDGPe40=fDGPe40 * 5.43 / 1304
-                    fDGPe45=fDGPe45 * 5.43 / 1304
-                    return [fDGPe35, fDGPe40, fDGPe45]
+def annual_eval(out_dir, pts):
+    """calculates annual glare metrics """
+    dgp_value = np.genfromtxt(f"{out_dir}dgp_{pts}.out", delimiter=" ", usecols=3)
+    fdgpe = np.zeros(3)  # DGP > 0.35, 0.4, 0.45
+    for i in range(len(dgp_value)):
+        for j in range(3):
+            if dgp_value[i] > (0.35 + j * 0.05):
+                fdgpe[j] = fdgpe[j] + 1
+    for j in range(3):
+        fdgpe[j] = fdgpe[j] * 5.43 / 1304
+    np.savetxt(f"{out_dir}fDGPe_{pts}.out", fdgpe, delimiter=" ", fmt="%1.3f")
 
 
-                    class RadianceParam(object):
-                    def __init__(self, opts)
-                    self.aa=0.1
-                    self.lw=0.002
-                    self.st=0.15
-                    self.aS=1000
-                    self.x_dimension=900
-                    self.y_dimension=900
-                    self.ab=opts.ab
-                    self.ad=opts.ad
+class RadianceParam:
+    """ Declares Radiance parameters """
 
-
-                    def write_output(config, cpu_time, fDGPe):
-                    file_time=open("%stime.out" % config.outDir, "w")
-                    file_time.write("%d %.3f" % (opts.c, cpu_time)
-    file_time.close()
-    file_fdgpe = open("%sfDGPe_%i.out" % (outDir, pts), "w")
-    file_fdgpe.write(fDGPe)
-    file_fdgpe.close()
+    def __init__(self, opts):
+        self.aa = 0.1  # pylint: disable=invalid-name
+        self.lw = 0.002  # pylint: disable=invalid-name
+        self.st = 0.15  # pylint: disable=invalid-name
+        self.aS = 1000  # pylint: disable=invalid-name
+        self.ab = opts.ab  # pylint: disable=invalid-name
+        self.ad = opts.ad  # pylint: disable=invalid-name
+        self.x_dimension = 900
+        self.y_dimension = 900
 
 
 def main(opts, config, radiance_param):
-    INOBIS = [4, 4, 4, 4, 4, 3]
-    t1 = time.time()
+    days_per_month = [4, 4, 4, 4, 4, 3]
+    start_time = time.time()
     # view points
-    view_points = np.atleast_2d(np.genfromtxt(
-        config.viewPoint))  # , delimiter="
-    gen_view_file(view_points, workDir)
-    # output file
-    output_file = open(f"{config.outDir}dgp_{pts}.out")
-    fDGPe = ['NaN', 'NaN', 'NaN']
+    view_points = np.atleast_2d(np.genfromtxt(config.viewPoint))  # , delimiter="
+    gen_view_file(view_points, config.work_dir)
     # static simulation if -date
     if opts.date:
         for pts in range(len(view_points)):
+            output_file = open(f"{config.out_dir}dgp_{pts}.out", "w")
             for i in range(len(opts.date)):
                 month = int(opts.date[i][:2])
                 day = int(opts.date[i][2:4])
@@ -262,12 +232,14 @@ def main(opts, config, radiance_param):
                     pts,
                     flag_direct=1,
                 )
+            output_file.close()
     # dynamic simulation
     else:
         for pts in range(len(view_points)):
+            output_file = open(f"{config.out_dir}dgp_{pts}.out", "w")
             for i in range(6):
                 month = i + 1
-                for j in range(INOBIS[i]):
+                for j in range(days_per_month[i]):
                     day = j * 7 + 1
                     for k in range(24):
                         hour = k
@@ -280,7 +252,7 @@ def main(opts, config, radiance_param):
                             config,
                             opts,
                             radiance_param,
-                            view_points,
+                            pts,
                             opts.direct,
                         )
             month = 12
@@ -296,23 +268,22 @@ def main(opts, config, radiance_param):
                     config,
                     opts,
                     radiance_param,
-                    view_points,
+                    pts,
                     opts.direct,
                 )
-            fDGPe = annual_eval(config.outDir, pts)
-    t2 = time.time()
-    cpu_time = abs(t2 - t1)
+            output_file.close()
+            annual_eval(config.out_dir, pts)
+    finish_time = time.time()
+    cpu_time = abs(finish_time - start_time)
     print("CPU time: %.1f s " % cpu_time)
-    write_output(config, cpu_time, fDGPe)
-    output_file.close()
+    file_time = open(f"{config.out_dir}time.out", "w")
+    file_time.write(f"{opts.c} {cpu_time}")
+    file_time.close()
 
 
 if __name__ == "__main__":
     try:
         opts = parse_args()
-        assert os.path.isfile(opts.config), (
-            "Config file '%s' not found" % config_path.split("/")[-1]
-        )
         config = parse_config(opts.config)
         radiance_param = RadianceParam(opts)
         _create_non_existing_directories(config)

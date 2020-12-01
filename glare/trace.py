@@ -1,20 +1,12 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+"""Calculates the vertical illuminance and DGP at view points.
 
-"""Calculates the vertical illuminance and DGP at a sensor point.
-
-Runs gensky to determine if the solar altitude is positive as a
-condition for a daylighting hour. For a daylighing hour, runs
-rtrace -ab 0 to determine if the solar disk is in the field of view as
-a condition to run rtrace with ab >3. Runs rtrace and pipes it into
-evalglare. If the option -img, it also generates a falsecolor luminance
-map of the field of view.
-
+For each view point defined in the 'viewPoint' file, the program calculates luminance maps of the field of view by raytracing (Radiance program rtrace), which are then passed to evalgare to calculate the Daylight Glare Probability (DGP). If the option -img is selected, the program also generates a falsecolor picture of the field of view. If a datum is provided (option -date), the calculation is done for the given instant assuming a clear sky. More than one datum can be provided. Without the option -date, the program runs for one day per week during half a year, calculating every hour in which the solar disk is in the field of view. The program runs gensky to determine if the solar altitude is positive as a condition for a daylighting hour. For a daylighing hour, runs rtrace -ab 0 to determine if the solar disk is in the field of view as a condition to run rtrace with ab > 0 (option -ab, default ab = 3). If the option -direct is selected, the calculation is done for the daylighting hours of one day per week. The option -c selects the number of cores for a multicore Radiance calculation.
 
   Typical usage example:
 
-  >>> foo = ClassFoo()
-  >>> bar = foo.FunctionBar()
+  python3 ./glare/trace.py {directory_path}/config.ini -c 5 -ab 4
+  python3 ./glare/trace.py {directory_path}/config.ini -c 5 -img -date 110510
+
 """
 
 from subprocess import PIPE, run
@@ -22,10 +14,9 @@ import time
 import numpy as np
 import argparse
 import os
+import sys
+import traceback
 from configparser import ConfigParser
-
-
-"""Parse arguments"""
 
 
 def parse_args():
@@ -74,10 +65,7 @@ class Config:
     pass
 
 
-"""Parse configruation"""
-
-
-def parse_config(config_path, options):
+def parse_config(config_path):
     parser = ConfigParser()
     parser.read(config_path)
     config = Config()
@@ -94,9 +82,8 @@ def _add_variables(parser, config):
 
 
 def _add_paths(parser, config):
-    config.inDir = parser.get("PATHS", "inDir")
-    config.workDir = parser.get("PATHS", "workDir")
-    config.outDir = parser.get("PATHS", "outDir")
+    config.work_dir = parser.get("PATHS", "workDir")
+    config.out_dir = parser.get("PATHS", "outDir")
 
 
 def _add_inputs(parser, config):
@@ -109,341 +96,204 @@ def _add_inputs(parser, config):
 
 
 def _create_non_existing_directories(config):
-    if hasattr(config, "outDir") and not os.path.exists(config.outDir):
-        os.makedirs(config.outDir)
-    if hasattr(config, "workDir") and not os.path.exists(config.workDir):
-        os.makedirs(config.workDir)
-    if not os.path.isfile("%sskyglowM.rad" % workDir):
+    if hasattr(config, "out_dir") and not os.path.exists(config.out_dir):
+        os.makedirs(config.out_dir)
+    if hasattr(config, "work_dir") and not os.path.exists(config.work_dir):
+        os.makedirs(config.work_dir)
+    if not os.path.isfile("%sskyglowM.rad" % config.work_dir):
         cad = "skyfunc glow groundglow 0 0 4 1 1 1 0 \ngroundglow source ground 0 0 4 0 0 -1 180 \nskyfunc glow skyglow 0 0 4 1 1 1 0 \nskyglow source skydome 0 0 4 0 0 1 180"
-        fileSK = open("%sskyglowM.rad" % workDir, "w")
-        fileSK.write("%s" % (cad))
-        fileSK.close()
+        sky_file = open("%sskyglowM.rad" % config.work_dir, "w")
+        sky_file.write("%s" % (cad))
+        sky_file.close()
 
 
-def shell(cmd, outputFlag=False):
+def shell(cmd, output_flag=False):
+    """ runs shell commands """
     print(cmd)
-    stdout = PIPE if outputFlag else None
-    completedProcess = run(cmd, stdout=stdout, stderr=PIPE, shell=True, check=True)
-    if outputFlag:
-        return completedProcess.stdout.decode("utf-8")
+    stdout = PIPE if output_flag else None
+    _completed_process = run(cmd, stdout=stdout, stderr=PIPE, shell=True, check=True)
+    if output_flag:
+        return _completed_process.stdout.decode("utf-8")
 
 
-def gen_view_file(pts, workDir):
-    for i in range(len(pts)):
-        with open("%sview_%i.vf" % (workDir, i), "w") as fw:
-            tx, ty, tz = pts[i, 0], pts[i, 1], pts[i, 2]
-            rx, ry, rz = pts[i, 3], pts[i, 4], pts[i, 5]
-            fw.write(
-                "rview -vta -vp %1.3f %1.3f %1.3f -vd %1.3f %1.3f %1.3f -vv 180 -vh 180 -vs 0 -vl 0 -vu 0 0 1\n"
-                % (tx, ty, tz, rx, ry, rz)
+def gen_view_file(view_points, work_dir):
+    """ generates view and sensor files from viewPoints """
+    sensor_vector = np.zeros(6)
+    for i in range(len(view_points)):
+        for j in range(6):
+            sensor_vector[j] = view_points[i, j]
+        with open(f"{work_dir}view_{i}.vf", "w") as view_file:
+            view_file.write(
+                f"rview -vta -vp {sensor_vector[0]} {sensor_vector[1]} {sensor_vector[2]} -vd {sensor_vector[3]} {sensor_vector[4]} {sensor_vector[5]} -vv 180 -vh 180 -vs 0 -vl 0 -vu 0 0 1\n"
             )
-        with open("%ssensor_%i.pts" % (workDir, i), "w") as fw:
-            tx, ty, tz = pts[i, 0], pts[i, 1], pts[i, 2]
-            rx, ry, rz = pts[i, 3], pts[i, 4], pts[i, 5]
-            fw.write("%1.3f %1.3f %1.3f %1.3f %1.3f %1.3f\n" % (tx, ty, tz, rx, ry, rz))
+        with open(f"{work_dir}sensor_{i}.pts", "w") as sensor_file:
+            sensor_file.write(
+                f"{sensor_vector[0]} {sensor_vector[1]} {sensor_vector[2]} {sensor_vector[3]} {sensor_vector[4]} {sensor_vector[5]}\n"
+            )
 
 
 def calculate_dgp(
-    fileDGP,
+    output_file,
     month,
     day,
     hour,
-    lat,
-    lon,
-    mer,
-    workDir,
-    inDir,
-    matFile,
-    roomFile,
-    obstacles,
-    shadFile,
-    glazFile,
-    ab,
-    ad,
-    aa,
-    aS,
-    lw,
-    n,
+    config,
+    opts,
+    radiance_param,
     pts,
-    runFlag=0,
+    flag_direct=0,
 ):
+    """ runs Radiance to calculate illuminance, dgp and luminance maps """
     # daylight hours
-    skySTR = " gensky %d %d %.2f +s -a %.2f -o %.2f -m %.1f" % (
-        month,
-        day,
-        hour,
-        lat,
-        lon,
-        mer,
-    )
-    coordsun = shell(skySTR, True)
-    sunAltitude = float(coordsun.split()[22])
-    if sunAltitude > 0:
-        print("daylight hour", sunAltitude)
-        skyt = "sky.rad"
-        skySTR = " gensky %d %d %.2f +s -a %.2f -o %.2f -m %.1f > %s%s " % (
-            month,
-            day,
-            hour,
-            lat,
-            lon,
-            mer,
-            workDir,
-            skyt,
-        )
-        octSTR = " oconv %s%s %s%s %s%s %s%s %s%s %s%s %sskyglowM.rad > %sscene.oct" % (
-            workDir,
-            skyt,
-            inDir,
-            matFile,
-            inDir,
-            roomFile,
-            inDir,
-            obstacles,
-            inDir,
-            shadFile,
-            inDir,
-            glazFile,
-            workDir,
-            workDir,
-        )
-        shell(skySTR)
-        shell(octSTR)
+    _sky_str = f"gensky {month} {day} {hour} +s -a {config.lat} -o {config.lon} -m {config.mer}"
+    _coordsun = shell(_sky_str, True)
+    sun_altitude = float(_coordsun.split()[22])
+    if sun_altitude > 0:
+        _sky_str = f"gensky {month} {day} {hour} +s -a {config.lat} -o {config.lon} -m {config.mer} > {config.work_dir}sky.rad"
+        shell(_sky_str)
+        # Radiance octree
+        _oct_str = f"oconv {config.work_dir}sky.rad {config.matFile} {config.roomFile} {config.obstacles} {config.shadFile} {config.glazFile} {config.work_dir}skyglowM.rad > {config.work_dir}scene.oct"
+        shell(_oct_str)
         # Visible solar disk hours
-        mainSTR = (
-            "rtrace -h -I -ab 0 -ad %d -aa %.2f -as %d -lw %.8f -n %d -ov %sscene.oct <%ssensor_%i.pts"
-            % (ad, aa, aS, lw, n, workDir, workDir, pts)
-        )
-        result = shell(mainSTR, True)
-        illuDirect = float(result.split()[0]) * 179
-        if illuDirect > 0.1 or runFlag:
-            print("visible solar disk hour", illuDirect)
-            # Point-in-time illuminance calculation:
-            mainSTR = (
-                "rtrace -h -I -ab %d -ad %d -aa %.2f -as %d -lw %.8f -n %d -ov %sscene.oct <%ssensor_%i.pts"
-                % (ab, ad, aa, aS, lw, n, workDir, workDir, pts)
-            )
-            result = shell(mainSTR, True)
-            illuVert = float(result.split()[0]) * 179
-            # Point-in-time image calculation:
+        _rtrace_str = f"rtrace -h -I -ab 0 -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -n {opts.c} -ov {config.work_dir}scene.oct <{config.work_dir}sensor_{pts}.pts"
+        _rtrace_result = shell(_rtrace_str, True)
+        _illuminance_direct = float(_rtrace_result.split()[0]) * 179
+        if _illuminance_direct > 0.1 or flag_direct:
+            # Point-in-time illuminance calculation
+            _rtrace_str = f"rtrace -h -I -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -n {opts.c} -ov {config.work_dir}scene.oct <{config.work_dir}sensor_{pts}.pts"
+            _rtrace_result = shell(_rtrace_str, True)
+            illuminance = float(_rtrace_result.split()[0]) * 179
+            # Point-in-time image calculation
             if opts.img:
-                mainSTR = " vwrays -ff -x %d -y %d -vf %sview_%i.vf | rtrace  -n %d -ab %d -ad %d -aa %.2f -as %d -lw %.8f -st %.8f -ld -ov -ffc $(vwrays -d -x %d -y %d -vf %sview_%i.vf) -h+ %sscene.oct > %s%i%i%i_%i.hdr" % (
-                    Nx,
-                    Ny,
-                    workDir,
-                    pts,
-                    n,
-                    ab,
-                    ad,
-                    aa,
-                    aS,
-                    lw,
-                    st,
-                    Nx,
-                    Ny,
-                    workDir,
-                    pts,
-                    workDir,
-                    outDir,
-                    month,
-                    day,
-                    hour,
-                    pts,
-                )
-                shell(mainSTR)
-                falSTR = (
-                    "falsecolor -ip %s%i%i%i_%i.hdr -l cd/m2 -lw 75 -s 5000 -n 5 | ra_tiff -z - %s%i%i%i_%i.tif"
-                    % (outDir, month, day, hour, pts, outDir, month, day, hour, pts)
-                )
-                shell(falSTR)
-                evalSTR = "evalglare -vta -vh 180 -vv 180 -vu 0 0 1 %s%i%i%i_%i.hdr" % (
-                    outDir,
-                    month,
-                    day,
-                    hour,
-                    pts,
-                )
-                result = shell(evalSTR, True)
-                dgp = float(result.split()[1])
+                _vwrays_str = f"vwrays -ff -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.work_dir}view_{pts}.vf | rtrace  -n {opts.c} -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -st {radiance_param.st} -ld -ov -ffc $(vwrays -d -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.work_dir}view_{pts}.vf) -h+ {config.work_dir}scene.oct > {config.out_dir}{month}{day}{hour}_{pts}.hdr"
+                shell(_vwrays_str)
+                _falsecolor_str = f"falsecolor -ip {config.out_dir}{month}{day}{hour}_{pts}.hdr -l cd/m2 -lw 75 -s 5000 -n 5 | ra_tiff -z - {config.out_dir}{month}{day}{hour}_{pts}.tif"
+                shell(_falsecolor_str)
+                _evalglare_str = f"evalglare -vta -vh 180 -vv 180 -vu 0 0 1 {config.out_dir}{month}{day}{hour}_{pts}.hdr"
+                _result_evalglare = shell(_evalglare_str, True)
+                dgp = float(_result_evalglare.split()[1])
             else:
-                mainSTR = "vwrays -ff -x %d -y %d -vf %sview_%i.vf | rtrace  -n %d -ab %d -ad %d -aa %.2f -as %d -lw %.8f -st %.8f -ld -ov -ffc $(vwrays -d -x %d -y %d -vf %sview_%i.vf) -h+ %sscene.oct | evalglare -vta -vh 180 -vv 180 -vu 0 0 1" % (
-                    Nx,
-                    Ny,
-                    workDir,
+                _vwrays_str = f"vwrays -ff -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.work_dir}view_{pts}.vf | rtrace  -n {opts.c} -ab {opts.ab} -ad {opts.ad} -aa {radiance_param.aa} -as {radiance_param.aS} -lw {radiance_param.lw} -st {radiance_param.st} -ld -ov -ffc $(vwrays -d -x {radiance_param.x_dimension} -y {radiance_param.y_dimension} -vf {config.work_dir}view_{pts}.vf) -h+ {config.work_dir}scene.oct | evalglare -vta -vh 180 -vv 180 -vu 0 0 1"
+                _result_vwrays = shell(_vwrays_str, True)
+                dgp = float(_result_vwrays.split()[1])
+                output_file.write(f"{month} {day} {hour} {dgp} {illuminance} \n")
+
+
+def annual_eval(out_dir, pts):
+    """calculates annual glare metrics """
+    dgp_value = np.genfromtxt(f"{out_dir}dgp_{pts}.out", delimiter=" ", usecols=3)
+    fdgpe = np.zeros(3)  # DGP > 0.35, 0.4, 0.45
+    for i in range(len(dgp_value)):
+        for j in range(3):
+            if dgp_value[i] > (0.35 + j * 0.05):
+                fdgpe[j] = fdgpe[j] + 1
+    for j in range(3):
+        fdgpe[j] = fdgpe[j] * 5.43 / 1304
+    np.savetxt(f"{out_dir}fDGPe_{pts}.out", fdgpe, delimiter=" ", fmt="%1.3f")
+
+
+class RadianceParam:
+    """ Declares Radiance parameters """
+
+    def __init__(self, opts):
+        self.aa = 0.1  # pylint: disable=invalid-name
+        self.lw = 0.002  # pylint: disable=invalid-name
+        self.st = 0.15  # pylint: disable=invalid-name
+        self.aS = 1000  # pylint: disable=invalid-name
+        self.ab = opts.ab  # pylint: disable=invalid-name
+        self.ad = opts.ad  # pylint: disable=invalid-name
+        self.x_dimension = 900
+        self.y_dimension = 900
+
+
+def main(opts, config, radiance_param):
+    days_per_month = [4, 4, 4, 4, 4, 3]
+    start_time = time.time()
+    # view points
+    view_points = np.atleast_2d(np.genfromtxt(config.viewPoint))  # , delimiter="
+    gen_view_file(view_points, config.work_dir)
+    # static simulation if -date
+    if opts.date:
+        for pts in range(len(view_points)):
+            output_file = open(f"{config.out_dir}dgp_{pts}.out", "w")
+            for i in range(len(opts.date)):
+                month = int(opts.date[i][:2])
+                day = int(opts.date[i][2:4])
+                hour = float(opts.date[i][4:])
+                print(month, day, hour)
+                calculate_dgp(
+                    output_file,
+                    month,
+                    day,
+                    hour,
+                    config,
+                    opts,
+                    radiance_param,
                     pts,
-                    n,
-                    ab,
-                    ad,
-                    aa,
-                    aS,
-                    lw,
-                    st,
-                    Nx,
-                    Ny,
-                    workDir,
-                    pts,
-                    workDir,
+                    flag_direct=1,
                 )
-                result = shell(mainSTR, True)
-                dgp = float(result.split()[1])
-            print("DGP", dgp, "illuVert", illuVert)
-            fileDGP.write(
-                "%d %d %1.1f %.3f %i \n" % (int(month), int(day), hour, dgp, illuVert)
-            )
-
-
-def annual_eval(outDir, pts):
-    dgpValue = np.genfromtxt("%sdgp_%i.out" % (outDir, pts), delimiter=" ", usecols=3)
-    fDGPe35 = 0
-    fDGPe40 = 0
-    fDGPe45 = 0
-    for i in range(len(dgpValue)):
-        if dgpValue[i] > 0.35:
-            fDGPe35 = fDGPe35 + 1
-        if dgpValue[i] > 0.40:
-            fDGPe40 = fDGPe40 + 1
-        if dgpValue[i] > 0.45:
-            fDGPe45 = fDGPe45 + 1
-    fDGPe35 = fDGPe35 * 5.43 / 1304
-    fDGPe40 = fDGPe40 * 5.43 / 1304
-    fDGPe45 = fDGPe45 * 5.43 / 1304
-    fDGPe = [fDGPe35, fDGPe40, fDGPe45]
-    np.savetxt("%sfDGPe_%i.out" % (outDir, pts), fDGPe, delimiter=" ", fmt="%1.3f")
+            output_file.close()
+    # dynamic simulation
+    else:
+        for pts in range(len(view_points)):
+            output_file = open(f"{config.out_dir}dgp_{pts}.out", "w")
+            for i in range(6):
+                month = i + 1
+                for j in range(days_per_month[i]):
+                    day = j * 7 + 1
+                    for k in range(24):
+                        hour = k
+                        print(month, day, hour)
+                        calculate_dgp(
+                            output_file,
+                            month,
+                            day,
+                            hour,
+                            config,
+                            opts,
+                            radiance_param,
+                            pts,
+                            opts.direct,
+                        )
+            month = 12
+            day = 22
+            for k in range(24):
+                hour = k
+                print(month, day, hour)
+                calculate_dgp(
+                    output_file,
+                    month,
+                    day,
+                    hour,
+                    config,
+                    opts,
+                    radiance_param,
+                    pts,
+                    opts.direct,
+                )
+            output_file.close()
+            annual_eval(config.out_dir, pts)
+    finish_time = time.time()
+    cpu_time = abs(finish_time - start_time)
+    print("CPU time: %.1f s " % cpu_time)
+    file_time = open(f"{config.out_dir}time.out", "w")
+    file_time.write(f"{opts.c} {cpu_time}")
+    file_time.close()
 
 
 if __name__ == "__main__":
-    if 1 == 1:
+    try:
         opts = parse_args()
-        config_path = opts.config
-        config = parse_config(config_path, opts)
-        # _add_variables
-        inDir = config.inDir
-        workDir = config.workDir
-        outDir = config.outDir
-        # _add_inputs
-        aa = 0.1
-        lw = 0.002
-        st = 0.15
-        aS = 1000
-        Ny = 900
-        Nx = 900
-        Npts = 9
+        config = parse_config(opts.config)
+        radiance_param = RadianceParam(opts)
         _create_non_existing_directories(config)
-        # --
-        fileTime = open("%stime.out" % outDir, "w")
-        inobis = [4, 4, 4, 4, 4, 3]
-        t1 = time.time()
-        # generate view file
-        illuPts = np.atleast_2d(
-            np.genfromtxt("%s%s" % (inDir, config.viewPoint), delimiter=" ")
-        )
-        gen_view_file(illuPts, workDir)
-        for pts in range(len(illuPts)):
-            # output file
-            fileDGP = open("%sdgp_%i.out" % (outDir, pts), "w")
-            # dynamic simulation
-            if opts.date:
-                for i in range(len(opts.date)):
-                    month = int(opts.date[i][:2])
-                    day = int(opts.date[i][2:4])
-                    hour = float(opts.date[i][4:])
-                    print(month, day, hour)
-                    calculate_dgp(
-                        fileDGP,
-                        month,
-                        day,
-                        hour,
-                        config.lat,
-                        config.lon,
-                        config.mer,
-                        workDir,
-                        inDir,
-                        config.matFile,
-                        config.roomFile,
-                        config.obstacles,
-                        config.shadFile,
-                        config.glazFile,
-                        opts.ab,
-                        opts.ad,
-                        aa,
-                        aS,
-                        lw,
-                        opts.c,
-                        pts,
-                        1,
-                    )
-            else:
-                for i in range(6):
-                    month = i + 1
-                    for j in range(inobis[i]):
-                        day = j * 7 + 1
-                        for k in range(24):
-                            hour = k
-                            print(month, day, hour)
-                            calculate_dgp(
-                                fileDGP,
-                                month,
-                                day,
-                                hour,
-                                config.lat,
-                                config.lon,
-                                config.mer,
-                                workDir,
-                                inDir,
-                                config.matFile,
-                                config.roomFile,
-                                config.obstacles,
-                                config.shadFile,
-                                config.glazFile,
-                                opts.ab,
-                                opts.ad,
-                                aa,
-                                aS,
-                                lw,
-                                opts.c,
-                                pts,
-                                opts.direct,
-                            )
-                month = 12
-                day = 22
-                for k in range(24):
-                    hour = k
-                    print(month, day, hour)
-                    calculate_dgp(
-                        fileDGP,
-                        month,
-                        day,
-                        hour,
-                        config.lat,
-                        config.lon,
-                        config.mer,
-                        workDir,
-                        inDir,
-                        config.matFile,
-                        config.roomFile,
-                        config.obstacles,
-                        config.shadFile,
-                        config.glazFile,
-                        opts.ab,
-                        opts.ad,
-                        aa,
-                        aS,
-                        lw,
-                        opts.c,
-                        pts,
-                        opts.direct,
-                    )
-            fileDGP.close()
-        t2 = time.time()
-        fileTime.write(
-            "%d %.3f \n"
-            % (
-                opts.c,
-                abs(t2 - t1),
+        main(opts, config, radiance_param)
+    except Exception as error:
+        print(
+            "".join(
+                traceback.format_exception(
+                    etype=type(error), value=error, tb=error.__traceback__
+                )
             )
         )
-        print("CPU time: %.1f s " % (abs(t2 - t1)))
-        fileTime.close()
-        if not opts.date:
-            for pts in range(len(illuPts)):
-                annual_eval(outDir, pts)
+        sys.exit("The following error occurred: %s" % error)

@@ -10,6 +10,8 @@
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 
+import alabaster
+import datetime
 import os
 import sys
 
@@ -20,8 +22,9 @@ master_doc = "index"
 # -- Project information -----------------------------------------------------
 
 project = "trace-glare"
-copyright = "2020, Bruno Bueno"
 author = "Bruno Bueno"
+year = datetime.datetime.now().year
+copyright = f"{year}, {author}"
 
 # The full version, including alpha/beta/rc tags
 release = "0.1"
@@ -62,7 +65,7 @@ autosummary_generate = True  # Make _autosummary files and include them
 napoleon_numpy_docstring = False  # Force consistency, leave only Google
 napoleon_use_rtype = False  # More legible
 
-intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
+intersphinx_mapping = {"python": ("https://docs.python.org/3.7", None)}
 
 
 # -- Options for HTML output -------------------------------------------------
@@ -71,6 +74,18 @@ intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 # a list of builtin themes.
 #
 html_theme = "alabaster"
+html_theme_path = [alabaster.get_path()]
+html_theme_options = {
+    "description": "Script to run dynamic glare simulations (DGP) by using Radiance raytracing",
+    "github_user": "bbuenoun",
+    "github_repo": "trace-glare",
+    "extra_nav_links": {
+        "Fraunhofer Institute for Solar Energy Systems ISE": "https://www.ise.fraunhofer.de",
+    },
+}
+html_sidebars = {
+    "**": ["about.html", "navigation.html", "searchbox.html", "donate.html"]
+}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

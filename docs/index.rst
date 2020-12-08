@@ -1,6 +1,5 @@
 Welcome to trace-glare's documentation!
 =======================================
-Contents:
 
 .. toctree::
    :maxdepth: 2
